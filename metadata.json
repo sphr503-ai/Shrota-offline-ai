@@ -1,0 +1,5 @@
+{
+  "name": "Offline Story Narrator",
+  "description": "A completely offline text-to-speech application for narrating stories with multiple character voices using browser-native synthesis.",
+  "requestFramePermissions": []
+}
