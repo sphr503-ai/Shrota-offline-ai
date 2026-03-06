@@ -152,7 +152,31 @@ export default function App() {
 
   const startRecording = async () => {
     try {
-      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      let stream: MediaStream;
+      
+      // Attempt to capture System Audio for "Clean" recording
+      // This is the only way to get internal TTS audio in a browser without a mic
+      if (navigator.mediaDevices && 'getDisplayMedia' in navigator.mediaDevices) {
+        try {
+          stream = await navigator.mediaDevices.getDisplayMedia({ 
+            audio: true, 
+            video: { width: 1, height: 1, frameRate: 1 } 
+          });
+          
+          // Check if the user actually shared audio
+          if (stream.getAudioTracks().length === 0) {
+            // If no audio track, stop the video and try mic fallback
+            stream.getTracks().forEach(t => t.stop());
+            throw new Error("No system audio shared");
+          }
+        } catch (e) {
+          console.warn("System audio capture failed or cancelled, falling back to microphone.");
+          stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+        }
+      } else {
+        stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      }
+
       const mediaRecorder = new MediaRecorder(stream);
       mediaRecorderRef.current = mediaRecorder;
       const chunks: Blob[] = [];
@@ -177,7 +201,7 @@ export default function App() {
       setIsRecording(true);
       handlePlay();
     } catch (err) {
-      alert("Microphone access is required to record the story audio offline.");
+      alert("Permission denied. To download audio, the app needs access to either System Audio or your Microphone.");
       console.error(err);
     }
   };
@@ -404,9 +428,9 @@ export default function App() {
               <span className="text-sm font-medium">Capture System Audio</span>
             </div>
             <p className="text-[10px] text-slate-400 leading-relaxed">
-              To download the audio offline, use the <strong>Record</strong> button in the header. 
-              It will play the story and record the sound via your device's audio input. 
-              Once finished, a <code>.webm</code> file will be saved to your device.
+              To download <strong>clean audio</strong> (without mic noise): 
+              Click Download, and when prompted, select <strong>"Share System Audio"</strong> or <strong>"This Tab"</strong>. 
+              If your device doesn't support this, it will use the microphone to record your speakers.
             </p>
           </div>
 
