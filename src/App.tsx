@@ -36,6 +36,9 @@ export default function App() {
   const [isPaused, setIsPaused] = useState(false);
   const [currentLineIndex, setCurrentLineIndex] = useState(-1);
   const [showSettings, setShowSettings] = useState(false);
+  const [isRecording, setIsRecording] = useState(false);
+  const [audioChunks, setAudioChunks] = useState<Blob[]>([]);
+  const mediaRecorderRef = useRef<MediaRecorder | null>(null);
 
   const narratorRef = useRef<StoryNarrator | null>(null);
 
@@ -139,6 +142,58 @@ export default function App() {
     setIsPlaying(false);
     setIsPaused(false);
     setCurrentLineIndex(-1);
+    
+    if (isRecording) {
+      stopRecording();
+    }
+  };
+
+  const startRecording = async () => {
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      const mediaRecorder = new MediaRecorder(stream);
+      mediaRecorderRef.current = mediaRecorder;
+      const chunks: Blob[] = [];
+
+      mediaRecorder.ondataavailable = (e) => {
+        if (e.data.size > 0) chunks.push(e.data);
+      };
+
+      mediaRecorder.onstop = () => {
+        const blob = new Blob(chunks, { type: 'audio/webm' });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = `story-recording-${Date.now()}.webm`;
+        a.click();
+        URL.revokeObjectURL(url);
+        setIsRecording(false);
+        stream.getTracks().forEach(track => track.stop());
+      };
+
+      mediaRecorder.start();
+      setIsRecording(true);
+      handlePlay();
+    } catch (err) {
+      alert("Microphone access is required to record the story audio offline.");
+      console.error(err);
+    }
+  };
+
+  const stopRecording = () => {
+    if (mediaRecorderRef.current && mediaRecorderRef.current.state !== 'inactive') {
+      mediaRecorderRef.current.stop();
+    }
+  };
+
+  const downloadScript = () => {
+    const blob = new Blob([script], { type: 'text/plain' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `story-script-${Date.now()}.txt`;
+    a.click();
+    URL.revokeObjectURL(url);
   };
 
   const updateAssignment = (char: string, field: keyof VoiceAssignment, value: any) => {
@@ -159,6 +214,20 @@ export default function App() {
           <p className="text-slate-500 mt-2 font-medium">Local Multi-Character Story Reader</p>
         </div>
         <div className="flex gap-2">
+          <button 
+            onClick={downloadScript}
+            title="Download Script"
+            className="p-3 rounded-2xl bg-white text-slate-600 hover:bg-slate-50 border border-slate-200 transition-all"
+          >
+            <Download className="w-6 h-6" />
+          </button>
+          <button 
+            onClick={isRecording ? handleStop : startRecording}
+            title={isRecording ? "Stop Recording" : "Record & Play Story"}
+            className={`p-3 rounded-2xl transition-all ${isRecording ? 'bg-red-500 text-white animate-pulse shadow-lg shadow-red-200' : 'bg-white text-slate-600 hover:bg-slate-50 border border-slate-200'}`}
+          >
+            <Volume2 className={`w-6 h-6 ${isRecording ? 'fill-current' : ''}`} />
+          </button>
           <button 
             onClick={() => setShowSettings(!showSettings)}
             className={`p-3 rounded-2xl transition-all ${showSettings ? 'bg-blue-600 text-white shadow-lg shadow-blue-200' : 'bg-white text-slate-600 hover:bg-slate-50 border border-slate-200'}`}
@@ -307,6 +376,19 @@ export default function App() {
                 </div>
               )}
             </div>
+          </div>
+
+          <div className="bg-slate-900 rounded-3xl p-6 text-white">
+            <h3 className="text-xs font-bold uppercase tracking-widest text-slate-500 mb-2">Recording & Export</h3>
+            <div className="flex items-center gap-2 mb-4">
+              <div className="w-2 h-2 rounded-full bg-blue-500" />
+              <span className="text-sm font-medium">Capture System Audio</span>
+            </div>
+            <p className="text-[10px] text-slate-400 leading-relaxed">
+              To download the audio offline, use the <strong>Record</strong> button in the header. 
+              It will play the story and record the sound via your device's audio input. 
+              Once finished, a <code>.webm</code> file will be saved to your device.
+            </p>
           </div>
 
           <div className="bg-slate-900 rounded-3xl p-6 text-white">
