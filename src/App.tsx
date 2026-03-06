@@ -9,7 +9,9 @@ import {
   Volume2, 
   ChevronRight,
   RefreshCw,
-  Download
+  Download,
+  FileText,
+  Mic
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { parseScript, StoryNarrator, getAvailableVoices } from './services/ttsService';
@@ -213,24 +215,41 @@ export default function App() {
           </h1>
           <p className="text-slate-500 mt-2 font-medium">Local Multi-Character Story Reader</p>
         </div>
-        <div className="flex gap-2">
+        <div className="flex gap-3">
           <button 
             onClick={downloadScript}
-            title="Download Script"
-            className="p-3 rounded-2xl bg-white text-slate-600 hover:bg-slate-50 border border-slate-200 transition-all"
+            title="Download Script (.txt)"
+            className="flex items-center gap-2 px-4 py-3 rounded-2xl bg-white text-slate-600 hover:bg-slate-50 border border-slate-200 transition-all font-bold text-sm"
           >
-            <Download className="w-6 h-6" />
+            <FileText className="w-5 h-5" />
+            <span className="hidden md:inline">Script</span>
           </button>
+          
           <button 
             onClick={isRecording ? handleStop : startRecording}
-            title={isRecording ? "Stop Recording" : "Record & Play Story"}
-            className={`p-3 rounded-2xl transition-all ${isRecording ? 'bg-red-500 text-white animate-pulse shadow-lg shadow-red-200' : 'bg-white text-slate-600 hover:bg-slate-50 border border-slate-200'}`}
+            title={isRecording ? "Stop & Save" : "Download Audio (.webm)"}
+            className={`flex items-center gap-2 px-6 py-3 rounded-2xl transition-all font-bold text-sm shadow-lg ${
+              isRecording 
+                ? 'bg-red-500 text-white animate-pulse shadow-red-200' 
+                : 'bg-blue-600 text-white hover:bg-blue-700 shadow-blue-200'
+            }`}
           >
-            <Volume2 className={`w-6 h-6 ${isRecording ? 'fill-current' : ''}`} />
+            {isRecording ? (
+              <>
+                <Square className="w-5 h-5 fill-current" />
+                <span>Recording...</span>
+              </>
+            ) : (
+              <>
+                <Download className="w-5 h-5" />
+                <span>Download Audio</span>
+              </>
+            )}
           </button>
+
           <button 
             onClick={() => setShowSettings(!showSettings)}
-            className={`p-3 rounded-2xl transition-all ${showSettings ? 'bg-blue-600 text-white shadow-lg shadow-blue-200' : 'bg-white text-slate-600 hover:bg-slate-50 border border-slate-200'}`}
+            className={`p-3 rounded-2xl transition-all ${showSettings ? 'bg-slate-800 text-white shadow-lg shadow-slate-200' : 'bg-white text-slate-600 hover:bg-slate-50 border border-slate-200'}`}
           >
             <Settings2 className="w-6 h-6" />
           </button>
