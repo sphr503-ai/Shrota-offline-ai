@@ -13,19 +13,23 @@ import {
   FileText,
   Mic,
   Sparkles,
-  Loader2
+  Loader2,
+  UserCheck,
+  Info
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { GoogleGenAI, Modality } from "@google/genai";
 import { parseScript, StoryNarrator, getAvailableVoices } from './services/ttsService';
-import { ScriptLine, VoiceAssignment } from './types';
+import { ScriptLine, VoiceAssignment, CharacterPreset } from './types';
+import { CHARACTER_PRESETS } from './constants';
 
-const DEFAULT_SCRIPT = `Narrator: Once upon a time, in a digital forest, lived a clever fox named Pixel.
-Pixel: Hello there! I'm Pixel. I love exploring new code.
-Narrator: Suddenly, a wise owl named Binary flew down from a branch.
-Binary: Greetings, Pixel. Have you seen the latest algorithm?
-Pixel: Not yet, Binary! Is it a fast one?
-Narrator: The two friends spent the afternoon discussing the beauty of clean code.`;
+const DEFAULT_SCRIPT = `Jarvis: Sophisticated, Analytical Deep British/Neutral Baritone.
+Leo: Energetic, Friendly Mid-range, Casual American.
+Atlas: Calm, Authoritative Deep, Resonant Bass.
+Lyra: Warm, Helpful Soft, Clear Mezzo-soprano.
+Nova: Sharp, Professional Crisp, Fast-paced Alto.
+Maya: Gentle, Empathetic Smooth, Melodic Soprano.
+Narrator: These are the six unique voices initialized for your offline story experience.`;
 
 export default function App() {
   const [script, setScript] = useState(() => {
@@ -63,11 +67,13 @@ export default function App() {
         
         Array.from(chars).forEach((char, index) => {
           const voice = availableVoices[index % availableVoices.length];
+          const preset = CHARACTER_PRESETS.find(p => p.name === char);
+          
           initialAssignments[char] = {
             name: char,
             voiceURI: voice.voiceURI,
-            pitch: 1,
-            rate: 1
+            pitch: preset ? preset.defaultPitch : 1,
+            rate: preset ? preset.defaultRate : 1
           };
         });
         setAssignments(prev => ({ ...initialAssignments, ...prev }));
@@ -112,11 +118,13 @@ export default function App() {
       characters.forEach((char, i) => {
         if (!next[char]) {
           const voice = voices[i % voices.length];
+          const preset = CHARACTER_PRESETS.find(p => p.name === char);
+          
           next[char] = {
             name: char,
             voiceURI: voice.voiceURI,
-            pitch: 1,
-            rate: 1
+            pitch: preset ? preset.defaultPitch : 1,
+            rate: preset ? preset.defaultRate : 1
           };
           changed = true;
         }
@@ -154,33 +162,40 @@ export default function App() {
     try {
       const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY! });
       
-      // Map characters to Gemini voices
-      // Gemini TTS supports: 'Puck', 'Charon', 'Kore', 'Fenrir', 'Zephyr'
-      const geminiVoices = ['Kore', 'Puck', 'Charon', 'Fenrir', 'Zephyr'];
+      // Map characters to Gemini voices based on presets or gender
+      const getGeminiVoice = (charName: string) => {
+        const preset = CHARACTER_PRESETS.find(p => p.name === charName);
+        if (preset) {
+          const map: Record<string, string> = {
+            'Jarvis': 'Charon',
+            'Leo': 'Puck',
+            'Atlas': 'Fenrir',
+            'Lyra': 'Kore',
+            'Nova': 'Zephyr',
+            'Maya': 'Kore'
+          };
+          return map[preset.name] || 'Kore';
+        }
+        return 'Kore';
+      };
       
       let prompt = `TTS the following story with different voices for each character:\n\n${script}`;
       
-      // If exactly 2 characters, we can use multi-speaker config
-      const charList = characters.slice(0, 2);
-      const isMultiSpeaker = charList.length === 2;
-
+      const charList = characters.slice(0, 5); // Gemini supports up to 2 for multi-speaker, but we can try to prompt for more in text
+      
       const response = await ai.models.generateContent({
         model: "gemini-2.5-flash-preview-tts",
         contents: [{ parts: [{ text: prompt }] }],
         config: {
           responseModalities: [Modality.AUDIO],
-          speechConfig: isMultiSpeaker ? {
+          speechConfig: {
             multiSpeakerVoiceConfig: {
-              speakerVoiceConfigs: charList.map((char, i) => ({
+              speakerVoiceConfigs: characters.map((char) => ({
                 speaker: char,
                 voiceConfig: {
-                  prebuiltVoiceConfig: { voiceName: geminiVoices[i % geminiVoices.length] }
+                  prebuiltVoiceConfig: { voiceName: getGeminiVoice(char) }
                 }
               }))
-            }
-          } : {
-            voiceConfig: {
-              prebuiltVoiceConfig: { voiceName: 'Kore' }
             }
           }
         },
@@ -221,6 +236,31 @@ export default function App() {
     a.download = `story-script-${Date.now()}.txt`;
     a.click();
     URL.revokeObjectURL(url);
+  };
+
+  const applyPreset = (char: string, presetName: string) => {
+    const preset = CHARACTER_PRESETS.find(p => p.name === presetName);
+    if (!preset) return;
+
+    // Try to find a matching voice by gender keywords
+    const matchingVoice = voices.find(v => {
+      const name = v.name.toLowerCase();
+      if (preset.gender === 'male') {
+        return name.includes('male') || name.includes('david') || name.includes('mark') || name.includes('guy') || name.includes('stefan');
+      } else {
+        return name.includes('female') || name.includes('zira') || name.includes('hazel') || name.includes('susan') || name.includes('catherine');
+      }
+    }) || voices[0];
+
+    setAssignments(prev => ({
+      ...prev,
+      [char]: {
+        ...prev[char],
+        pitch: preset.defaultPitch,
+        rate: preset.defaultRate,
+        voiceURI: matchingVoice.voiceURI
+      }
+    }));
   };
 
   const updateAssignment = (char: string, field: keyof VoiceAssignment, value: any) => {
@@ -373,28 +413,60 @@ export default function App() {
               {characters.map((char) => (
                 <div key={char} className="bg-white/50 rounded-2xl p-4 border border-slate-100">
                   <div className="flex justify-between items-center mb-3">
-                    <span className="font-bold text-slate-700">{char}</span>
+                    <div className="flex items-center gap-2">
+                      <span className="font-bold text-slate-700">{char}</span>
+                      {CHARACTER_PRESETS.some(p => p.name === char) && (
+                        <UserCheck className="w-3 h-3 text-blue-500" title="System Preset Character" />
+                      )}
+                    </div>
                     <div className="flex gap-2 text-[10px] font-mono text-slate-400">
                       <span>P: {assignments[char]?.pitch.toFixed(1)}</span>
                       <span>R: {assignments[char]?.rate.toFixed(1)}</span>
                     </div>
                   </div>
                   
-                  <select
-                    value={assignments[char]?.voiceURI || ''}
-                    onChange={(e) => updateAssignment(char, 'voiceURI', e.target.value)}
-                    className="w-full bg-slate-50 border border-slate-200 rounded-xl px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-blue-500/20 mb-3"
-                  >
-                    {voices.map((v, index) => (
-                      <option key={`${v.voiceURI}-${index}`} value={v.voiceURI}>
-                        {v.name} ({v.lang})
-                      </option>
-                    ))}
-                  </select>
+                  <div className="mb-3">
+                    <label className="text-[10px] uppercase font-bold text-slate-400 block mb-2">Select Voice Model</label>
+                    <div className="grid grid-cols-3 gap-2">
+                      {CHARACTER_PRESETS.map(p => (
+                        <button
+                          key={p.name}
+                          onClick={() => applyPreset(char, p.name)}
+                          className={`px-2 py-2 rounded-xl text-[10px] font-bold border transition-all ${
+                            assignments[char]?.pitch === p.defaultPitch && assignments[char]?.rate === p.defaultRate
+                              ? 'bg-blue-600 border-blue-600 text-white shadow-md shadow-blue-100'
+                              : 'bg-white border-slate-200 text-slate-600 hover:border-blue-300 hover:bg-blue-50'
+                          }`}
+                        >
+                          {p.name}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+
+                  <div className="flex gap-2 mb-3">
+                    <div className="flex-1">
+                      <label className="text-[10px] uppercase font-bold text-slate-400 block mb-1">System Voice</label>
+                      <select
+                        value={assignments[char]?.voiceURI || ''}
+                        onChange={(e) => updateAssignment(char, 'voiceURI', e.target.value)}
+                        className="w-full bg-slate-50 border border-slate-200 rounded-xl px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-blue-500/20"
+                      >
+                        {voices.map((v, index) => (
+                          <option key={`${v.voiceURI}-${index}`} value={v.voiceURI}>
+                            {v.name} ({v.lang})
+                          </option>
+                        ))}
+                      </select>
+                    </div>
+                  </div>
 
                   <div className="grid grid-cols-2 gap-4">
                     <div>
-                      <label className="text-[10px] uppercase font-bold text-slate-400 block mb-1">Pitch</label>
+                      <div className="flex justify-between items-center mb-1">
+                        <label className="text-[10px] uppercase font-bold text-slate-400">Pitch</label>
+                        <span className="text-[9px] text-slate-400 font-mono">{assignments[char]?.pitch.toFixed(1)}</span>
+                      </div>
                       <input 
                         type="range" min="0.5" max="2" step="0.1"
                         value={assignments[char]?.pitch || 1}
@@ -403,7 +475,10 @@ export default function App() {
                       />
                     </div>
                     <div>
-                      <label className="text-[10px] uppercase font-bold text-slate-400 block mb-1">Rate</label>
+                      <div className="flex justify-between items-center mb-1">
+                        <label className="text-[10px] uppercase font-bold text-slate-400">Rate</label>
+                        <span className="text-[9px] text-slate-400 font-mono">{(assignments[char]?.rate * 150).toFixed(0)} WPM</span>
+                      </div>
                       <input 
                         type="range" min="0.5" max="2" step="0.1"
                         value={assignments[char]?.rate || 1}
@@ -420,6 +495,24 @@ export default function App() {
                   No characters detected in script.
                 </div>
               )}
+            </div>
+          </div>
+
+          <div className="bg-slate-900 rounded-3xl p-6 text-white">
+            <h3 className="text-xs font-bold uppercase tracking-widest text-slate-500 mb-4 flex items-center gap-2">
+              <Info className="w-4 h-4" />
+              Character Presets
+            </h3>
+            <div className="space-y-3">
+              {CHARACTER_PRESETS.map(p => (
+                <div key={p.name} className="flex flex-col gap-1">
+                  <div className="flex justify-between items-center">
+                    <span className="text-[11px] font-bold text-blue-400">{p.name}</span>
+                    <span className="text-[9px] text-slate-500 uppercase">{p.gender}</span>
+                  </div>
+                  <p className="text-[9px] text-slate-400 italic leading-tight">{p.description}</p>
+                </div>
+              ))}
             </div>
           </div>
 

@@ -1,3 +1,11 @@
+export interface CharacterPreset {
+  name: string;
+  gender: 'male' | 'female';
+  defaultPitch: number;
+  defaultRate: number;
+  description: string;
+}
+
 export interface VoiceAssignment {
   name: string;
   voiceURI: string;
