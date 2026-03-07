@@ -11,9 +11,12 @@ import {
   RefreshCw,
   Download,
   FileText,
-  Mic
+  Mic,
+  Sparkles,
+  Loader2
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
+import { GoogleGenAI, Modality } from "@google/genai";
 import { parseScript, StoryNarrator, getAvailableVoices } from './services/ttsService';
 import { ScriptLine, VoiceAssignment } from './types';
 
@@ -38,9 +41,7 @@ export default function App() {
   const [isPaused, setIsPaused] = useState(false);
   const [currentLineIndex, setCurrentLineIndex] = useState(-1);
   const [showSettings, setShowSettings] = useState(false);
-  const [isRecording, setIsRecording] = useState(false);
-  const [audioChunks, setAudioChunks] = useState<Blob[]>([]);
-  const mediaRecorderRef = useRef<MediaRecorder | null>(null);
+  const [isExporting, setIsExporting] = useState(false);
 
   const narratorRef = useRef<StoryNarrator | null>(null);
 
@@ -144,71 +145,71 @@ export default function App() {
     setIsPlaying(false);
     setIsPaused(false);
     setCurrentLineIndex(-1);
-    
-    if (isRecording) {
-      stopRecording();
-    }
   };
 
-  const startRecording = async () => {
+  const handleExportAudio = async () => {
+    if (isExporting) return;
+    setIsExporting(true);
+
     try {
-      let stream: MediaStream;
+      const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY! });
       
-      // Attempt to capture System Audio for "Clean" recording
-      // This is the only way to get internal TTS audio in a browser without a mic
-      if (navigator.mediaDevices && 'getDisplayMedia' in navigator.mediaDevices) {
-        try {
-          stream = await navigator.mediaDevices.getDisplayMedia({ 
-            audio: true, 
-            video: { width: 1, height: 1, frameRate: 1 } 
-          });
-          
-          // Check if the user actually shared audio
-          if (stream.getAudioTracks().length === 0) {
-            // If no audio track, stop the video and try mic fallback
-            stream.getTracks().forEach(t => t.stop());
-            throw new Error("No system audio shared");
+      // Map characters to Gemini voices
+      // Gemini TTS supports: 'Puck', 'Charon', 'Kore', 'Fenrir', 'Zephyr'
+      const geminiVoices = ['Kore', 'Puck', 'Charon', 'Fenrir', 'Zephyr'];
+      
+      let prompt = `TTS the following story with different voices for each character:\n\n${script}`;
+      
+      // If exactly 2 characters, we can use multi-speaker config
+      const charList = characters.slice(0, 2);
+      const isMultiSpeaker = charList.length === 2;
+
+      const response = await ai.models.generateContent({
+        model: "gemini-2.5-flash-preview-tts",
+        contents: [{ parts: [{ text: prompt }] }],
+        config: {
+          responseModalities: [Modality.AUDIO],
+          speechConfig: isMultiSpeaker ? {
+            multiSpeakerVoiceConfig: {
+              speakerVoiceConfigs: charList.map((char, i) => ({
+                speaker: char,
+                voiceConfig: {
+                  prebuiltVoiceConfig: { voiceName: geminiVoices[i % geminiVoices.length] }
+                }
+              }))
+            }
+          } : {
+            voiceConfig: {
+              prebuiltVoiceConfig: { voiceName: 'Kore' }
+            }
           }
-        } catch (e) {
-          console.warn("System audio capture failed or cancelled, falling back to microphone.");
-          stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+        },
+      });
+
+      const base64Audio = response.candidates?.[0]?.content?.parts?.[0]?.inlineData?.data;
+      if (base64Audio) {
+        const byteCharacters = atob(base64Audio);
+        const byteNumbers = new Array(byteCharacters.length);
+        for (let i = 0; i < byteCharacters.length; i++) {
+          byteNumbers[i] = byteCharacters.charCodeAt(i);
         }
-      } else {
-        stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-      }
-
-      const mediaRecorder = new MediaRecorder(stream);
-      mediaRecorderRef.current = mediaRecorder;
-      const chunks: Blob[] = [];
-
-      mediaRecorder.ondataavailable = (e) => {
-        if (e.data.size > 0) chunks.push(e.data);
-      };
-
-      mediaRecorder.onstop = () => {
-        const blob = new Blob(chunks, { type: 'audio/webm' });
+        const byteArray = new Uint8Array(byteNumbers);
+        const blob = new Blob([byteArray], { type: 'audio/wav' });
+        
         const url = URL.createObjectURL(blob);
         const a = document.createElement('a');
         a.href = url;
-        a.download = `story-recording-${Date.now()}.webm`;
+        a.download = `story-hq-${Date.now()}.wav`;
         a.click();
         URL.revokeObjectURL(url);
-        setIsRecording(false);
-        stream.getTracks().forEach(track => track.stop());
-      };
-
-      mediaRecorder.start();
-      setIsRecording(true);
-      handlePlay();
+      } else {
+        throw new Error("No audio data received from API");
+      }
     } catch (err) {
-      alert("Permission denied. To download audio, the app needs access to either System Audio or your Microphone.");
-      console.error(err);
-    }
-  };
-
-  const stopRecording = () => {
-    if (mediaRecorderRef.current && mediaRecorderRef.current.state !== 'inactive') {
-      mediaRecorderRef.current.stop();
+      console.error("Export failed:", err);
+      alert("High-quality export failed. Please check your connection or try again later.");
+    } finally {
+      setIsExporting(false);
     }
   };
 
@@ -250,23 +251,24 @@ export default function App() {
           </button>
           
           <button 
-            onClick={isRecording ? handleStop : startRecording}
-            title={isRecording ? "Stop & Save" : "Download Audio (.webm)"}
+            onClick={handleExportAudio}
+            disabled={isExporting}
+            title="Export High Quality Audio (.wav)"
             className={`flex items-center gap-2 px-6 py-3 rounded-2xl transition-all font-bold text-sm shadow-lg ${
-              isRecording 
-                ? 'bg-red-500 text-white animate-pulse shadow-red-200' 
+              isExporting 
+                ? 'bg-slate-200 text-slate-400 cursor-not-allowed' 
                 : 'bg-blue-600 text-white hover:bg-blue-700 shadow-blue-200'
             }`}
           >
-            {isRecording ? (
+            {isExporting ? (
               <>
-                <Square className="w-5 h-5 fill-current" />
-                <span>Recording...</span>
+                <Loader2 className="w-5 h-5 animate-spin" />
+                <span>Generating...</span>
               </>
             ) : (
               <>
-                <Download className="w-5 h-5" />
-                <span>Download Audio</span>
+                <Sparkles className="w-5 h-5" />
+                <span>HQ Export</span>
               </>
             )}
           </button>
@@ -422,15 +424,14 @@ export default function App() {
           </div>
 
           <div className="bg-slate-900 rounded-3xl p-6 text-white">
-            <h3 className="text-xs font-bold uppercase tracking-widest text-slate-500 mb-2">Recording & Export</h3>
+            <h3 className="text-xs font-bold uppercase tracking-widest text-slate-500 mb-2">High Quality Export</h3>
             <div className="flex items-center gap-2 mb-4">
               <div className="w-2 h-2 rounded-full bg-blue-500" />
-              <span className="text-sm font-medium">Capture System Audio</span>
+              <span className="text-sm font-medium">AI-Powered Generation</span>
             </div>
             <p className="text-[10px] text-slate-400 leading-relaxed">
-              To download <strong>clean audio</strong> (without mic noise): 
-              Click Download, and when prompted, select <strong>"Share System Audio"</strong> or <strong>"This Tab"</strong>. 
-              If your device doesn't support this, it will use the microphone to record your speakers.
+              Use the <strong>HQ Export</strong> button to generate a studio-quality <code>.wav</code> file. 
+              This uses the Gemini TTS engine to create a clean, professional audio file without needing microphone permissions.
             </p>
           </div>
 
