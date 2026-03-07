@@ -22,6 +22,7 @@ import { GoogleGenAI, Modality } from "@google/genai";
 import { parseScript, StoryNarrator, getAvailableVoices } from './services/ttsService';
 import { ScriptLine, VoiceAssignment, CharacterPreset } from './types';
 import { CHARACTER_PRESETS } from './constants';
+import { rawPcmToWav, downloadOrShareAudio } from './utils/audioUtils';
 
 const DEFAULT_SCRIPT = `Jarvis: Sophisticated, Analytical Deep British/Neutral Baritone.
 Leo: Energetic, Friendly Mid-range, Casual American.
@@ -179,9 +180,11 @@ export default function App() {
         return 'Kore';
       };
       
-      let prompt = `TTS the following story with different voices for each character:\n\n${script}`;
+      const prompt = `TTS the following story with different voices for each character. 
+      Ensure clear pauses between speakers.
       
-      const charList = characters.slice(0, 5); // Gemini supports up to 2 for multi-speaker, but we can try to prompt for more in text
+      STORY:
+      ${script}`;
       
       const response = await ai.models.generateContent({
         model: "gemini-2.5-flash-preview-tts",
@@ -203,20 +206,19 @@ export default function App() {
 
       const base64Audio = response.candidates?.[0]?.content?.parts?.[0]?.inlineData?.data;
       if (base64Audio) {
-        const byteCharacters = atob(base64Audio);
-        const byteNumbers = new Array(byteCharacters.length);
-        for (let i = 0; i < byteCharacters.length; i++) {
-          byteNumbers[i] = byteCharacters.charCodeAt(i);
+        // 1. Convert Base64 to Uint8Array directly
+        const binaryString = atob(base64Audio);
+        const len = binaryString.length;
+        const bytes = new Uint8Array(len);
+        for (let i = 0; i < len; i++) {
+          bytes[i] = binaryString.charCodeAt(i);
         }
-        const byteArray = new Uint8Array(byteNumbers);
-        const blob = new Blob([byteArray], { type: 'audio/wav' });
         
-        const url = URL.createObjectURL(blob);
-        const a = document.createElement('a');
-        a.href = url;
-        a.download = `story-hq-${Date.now()}.wav`;
-        a.click();
-        URL.revokeObjectURL(url);
+        // 2. Wrap raw PCM in a WAV header (Gemini returns 24000Hz mono PCM)
+        const wavBlob = rawPcmToWav(bytes, 24000);
+        
+        // 3. Trigger reliable download/share
+        await downloadOrShareAudio(wavBlob, `Story_HQ_${Date.now()}.wav`);
       } else {
         throw new Error("No audio data received from API");
       }
