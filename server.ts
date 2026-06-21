@@ -2,7 +2,7 @@ import express from "express";
 import path from "path";
 import dotenv from "dotenv";
 import { createServer as createViteServer } from "vite";
-import { GoogleGenAI, Modality } from "@google/genai";
+import { GoogleGenAI } from "@google/genai";
 
 // Load environment variables
 dotenv.config();
@@ -119,7 +119,7 @@ ${preparedScript}`;
         model: "gemini-3.1-flash-tts-preview",
         contents: [{ parts: [{ text: prompt }] }],
         config: {
-          responseModalities: [Modality.AUDIO],
+          responseModalities: ["AUDIO"],
           speechConfig: {
             multiSpeakerVoiceConfig: {
               speakerVoiceConfigs: speakerConfigs
