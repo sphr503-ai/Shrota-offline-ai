@@ -18,7 +18,6 @@ import {
   Info
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
-import { GoogleGenAI, Modality } from "@google/genai";
 import { parseScript, StoryNarrator, getAvailableVoices } from './services/ttsService';
 import { ScriptLine, VoiceAssignment, CharacterPreset } from './types';
 import { CHARACTER_PRESETS } from './constants';
@@ -97,9 +96,15 @@ export default function App() {
     };
   }, []);
 
-  // Save script to localStorage
+  // Save script to localStorage and stop playback on edit
   useEffect(() => {
     localStorage.setItem('story-narrator-script', script);
+    if (isPlaying) {
+      narratorRef.current?.stop();
+      setIsPlaying(false);
+      setIsPaused(false);
+      setCurrentLineIndex(-1);
+    }
   }, [script]);
 
   // Save assignments to localStorage
@@ -161,50 +166,25 @@ export default function App() {
     setIsExporting(true);
 
     try {
-      const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY! });
-      
-      // Map characters to Gemini voices based on presets or gender
-      const getGeminiVoice = (charName: string) => {
-        const preset = CHARACTER_PRESETS.find(p => p.name === charName);
-        if (preset) {
-          const map: Record<string, string> = {
-            'Jarvis': 'Charon',
-            'Leo': 'Puck',
-            'Atlas': 'Fenrir',
-            'Lyra': 'Kore',
-            'Nova': 'Zephyr',
-            'Maya': 'Kore'
-          };
-          return map[preset.name] || 'Kore';
-        }
-        return 'Kore';
-      };
-      
-      const prompt = `TTS the following story with different voices for each character. 
-      Ensure clear pauses between speakers.
-      
-      STORY:
-      ${script}`;
-      
-      const response = await ai.models.generateContent({
-        model: "gemini-2.5-flash-preview-tts",
-        contents: [{ parts: [{ text: prompt }] }],
-        config: {
-          responseModalities: [Modality.AUDIO],
-          speechConfig: {
-            multiSpeakerVoiceConfig: {
-              speakerVoiceConfigs: characters.map((char) => ({
-                speaker: char,
-                voiceConfig: {
-                  prebuiltVoiceConfig: { voiceName: getGeminiVoice(char) }
-                }
-              }))
-            }
-          }
+      const response = await fetch("/api/tts", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
         },
+        body: JSON.stringify({
+          script,
+          characters,
+        }),
       });
 
-      const base64Audio = response.candidates?.[0]?.content?.parts?.[0]?.inlineData?.data;
+      if (!response.ok) {
+        const errorData = await response.json().catch(() => ({}));
+        throw new Error(errorData.error || `Server responded with status ${response.status}`);
+      }
+
+      const data = await response.json();
+      const base64Audio = data.base64Audio;
+
       if (base64Audio) {
         // 1. Convert Base64 to Uint8Array directly
         const binaryString = atob(base64Audio);
@@ -222,9 +202,9 @@ export default function App() {
       } else {
         throw new Error("No audio data received from API");
       }
-    } catch (err) {
+    } catch (err: any) {
       console.error("Export failed:", err);
-      alert("High-quality export failed. Please check your connection or try again later.");
+      alert(`High-quality export failed: ${err.message || 'Please check your connection or try again later.'}`);
     } finally {
       setIsExporting(false);
     }
@@ -380,7 +360,7 @@ export default function App() {
 
           {/* Current Line Display */}
           <AnimatePresence mode="wait">
-            {isPlaying && currentLineIndex !== -1 && (
+            {isPlaying && currentLineIndex !== -1 && currentLineIndex < parsedLines.length && parsedLines[currentLineIndex] && (
               <motion.div
                 initial={{ opacity: 0, y: 20 }}
                 animate={{ opacity: 1, y: 0 }}
@@ -392,11 +372,11 @@ export default function App() {
                     <User className="w-4 h-4" />
                   </div>
                   <span className="font-bold text-blue-600 uppercase tracking-tighter text-sm">
-                    {parsedLines[currentLineIndex].character}
+                    {parsedLines[currentLineIndex]?.character || ''}
                   </span>
                 </div>
                 <p className="text-2xl font-medium leading-snug text-slate-800">
-                  {parsedLines[currentLineIndex].text}
+                  {parsedLines[currentLineIndex]?.text || ''}
                 </p>
               </motion.div>
             )}
